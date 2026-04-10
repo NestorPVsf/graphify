@@ -89,15 +89,19 @@ def generate(
     for cid, nodes in communities.items():
         label = community_labels.get(cid, f"Community {cid}")
         score = cohesion_scores.get(cid, 0.0)
-        # Filter method/function stubs from display - they're structural noise
-        real_nodes = [n for n in nodes if not _ifn(G, n)]
-        display = [G.nodes[n].get("label", n) for n in real_nodes[:8]]
-        suffix = f" (+{len(real_nodes)-8} more)" if len(real_nodes) > 8 else ""
+        # Prefer non-file nodes (functions, classes) for display — they're more descriptive.
+        # Fallback: if no non-file nodes exist (common in React where each file = 1 component),
+        # show the file nodes themselves so the community isn't rendered empty.
+        # [FORK FIX B1] upstream unconditionally filters file nodes, hiding entire communities.
+        non_file = [n for n in nodes if not _ifn(G, n)]
+        display_pool = non_file if non_file else list(nodes)
+        display = [G.nodes[n].get("label", n) for n in display_pool[:8]]
+        suffix = f" (+{len(display_pool)-8} more)" if len(display_pool) > 8 else ""
         lines += [
             "",
             f"### Community {cid} - \"{label}\"",
             f"Cohesion: {score}",
-            f"Nodes ({len(real_nodes)}): {', '.join(display)}{suffix}",
+            f"Nodes ({len(nodes)} total): {', '.join(display)}{suffix}",
         ]
 
     ambiguous = [(u, v, d) for u, v, d in G.edges(data=True) if d.get("confidence") == "AMBIGUOUS"]
