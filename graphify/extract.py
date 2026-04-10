@@ -18,6 +18,65 @@ def _make_id(*parts: str) -> str:
     return cleaned.strip("_").lower()
 
 
+def _path_slug(path: "Path", root: "Path") -> str:
+    """Build a unique slug from a file path relative to root.
+
+    [FORK FIX B2] Upstream uses only path.stem for node IDs, which collides when
+    multiple files share the same stem (Next.js App Router has many route.ts,
+    page.tsx, layout.tsx files). This slugifies the relative path WITHOUT the
+    extension, yielding unique IDs like ``src_app_api_tts_route`` vs
+    ``src_app_api_admin_users_route``.
+    """
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        rel = path
+    slug = re.sub(r"[^a-zA-Z0-9]+", "_", str(rel.with_suffix("")))
+    return slug.strip("_").lower()
+
+
+def _rename_ids_by_path(result: dict, path: "Path", root: "Path") -> None:
+    """Rewrite node IDs and edge source/target in-place using path-based slug.
+
+    [FORK FIX B2] Replaces the stem-based prefix on every node/edge id with a
+    unique path-based prefix so files sharing a stem no longer collide after
+    global concatenation. Only rewrites edges whose source or target is in the
+    local rename map (other edges must be left alone).
+    """
+    old_stem = path.stem.lower()
+    old_stem = re.sub(r"[^a-zA-Z0-9]+", "_", old_stem).strip("_")
+    new_prefix = _path_slug(path, root)
+    if not old_stem or not new_prefix or old_stem == new_prefix:
+        return
+
+    rename_map: dict[str, str] = {}
+    for node in result.get("nodes", []):
+        old_id = node.get("id", "")
+        if not old_id:
+            continue
+        if old_id == old_stem:
+            new_id = new_prefix
+        elif old_id.startswith(old_stem + "_"):
+            new_id = new_prefix + "_" + old_id[len(old_stem) + 1:]
+        else:
+            # Node ID doesn't match this file's stem — leave alone (shouldn't happen
+            # inside per-file results, but be defensive).
+            continue
+        rename_map[old_id] = new_id
+        node["id"] = new_id
+
+    if not rename_map:
+        return
+
+    for edge in result.get("edges", []):
+        src = edge.get("source")
+        tgt = edge.get("target")
+        if src in rename_map:
+            edge["source"] = rename_map[src]
+        if tgt in rename_map:
+            edge["target"] = rename_map[tgt]
+
+
 # ── LanguageConfig dataclass ─────────────────────────────────────────────────
 
 @dataclass
@@ -1021,7 +1080,7 @@ def _extract_python_rationale(path: Path, result: dict) -> None:
         return None
 
     def _add_rationale(text: str, line: int, parent_nid: str) -> None:
-        label = text[:80].replace("\r\n", " ").replace("\r", " ").replace("\n", " ").strip()
+        label = text[:80].replace("\n", " ").strip()
         rid = _make_id(stem, "rationale", str(line))
         if rid not in seen_ids:
             seen_ids.add(rid)
@@ -2634,10 +2693,16 @@ def extract(paths: list[Path]) -> dict:
             continue
         cached = load_cached(path, root)
         if cached is not None:
+            # [FORK FIX B2] Old caches may still hold stem-based IDs; rewrite them
+            # so a cached run benefits from the collision-free naming.
+            _rename_ids_by_path(cached, path, root)
             per_file.append(cached)
             continue
         result = extractor(path)
         if "error" not in result:
+            # [FORK FIX B2] Rename IDs using the path slug BEFORE caching so the
+            # cache stores already-unique IDs.
+            _rename_ids_by_path(result, path, root)
             save_cached(path, result, root)
         per_file.append(result)
     if total >= _PROGRESS_INTERVAL:
