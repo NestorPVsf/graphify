@@ -1,7 +1,16 @@
 # validate extraction JSON against the graphify schema before graph assembly
 from __future__ import annotations
 
-VALID_FILE_TYPES = {"code", "document", "paper", "image", "rationale"}
+# Canonical file types with dedicated Obsidian tags / panel semantics.
+# NOT a strict allowlist — semantic extractors (LLM subagents) routinely emit
+# richer, domain-useful types (concept, decision, entity, technology, normativa,
+# component, infrastructure...). Those are accepted as-is by the file_type check
+# below; this set only documents the well-known types and drives known-type tagging.
+KNOWN_FILE_TYPES = {
+    "code", "document", "paper", "image", "rationale",
+    "concept", "decision", "entity", "technology",
+}
+VALID_FILE_TYPES = KNOWN_FILE_TYPES  # backward-compat alias
 VALID_CONFIDENCES = {"EXTRACTED", "INFERRED", "AMBIGUOUS"}
 REQUIRED_NODE_FIELDS = {"id", "label", "file_type", "source_file"}
 REQUIRED_EDGE_FIELDS = {"source", "target", "relation", "confidence", "source_file"}
@@ -30,11 +39,17 @@ def validate_extraction(data: dict) -> list[str]:
             for field in REQUIRED_NODE_FIELDS:
                 if field not in node:
                     errors.append(f"Node {i} (id={node.get('id', '?')!r}) missing required field '{field}'")
-            if "file_type" in node and node["file_type"] not in VALID_FILE_TYPES:
-                errors.append(
-                    f"Node {i} (id={node.get('id', '?')!r}) has invalid file_type "
-                    f"'{node['file_type']}' - must be one of {sorted(VALID_FILE_TYPES)}"
-                )
+            if "file_type" in node:
+                ft = node["file_type"]
+                # Accept any non-empty string. LLM extractors produce useful
+                # domain types beyond the canonical set; rejecting them would
+                # discard real semantic signal. Only a missing/blank/non-string
+                # file_type is an actual error.
+                if not isinstance(ft, str) or not ft.strip():
+                    errors.append(
+                        f"Node {i} (id={node.get('id', '?')!r}) has invalid file_type "
+                        f"{ft!r} - must be a non-empty string"
+                    )
 
     # Edges
     if "edges" not in data:
