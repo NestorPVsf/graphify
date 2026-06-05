@@ -627,6 +627,76 @@ def claude_uninstall(project_dir: Path | None = None) -> None:
     _uninstall_claude_hook(project_dir or Path("."))
 
 
+_GRAPHIFYIGNORE_TEMPLATE = """\
+# graphify corpus scope - patterns follow .gitignore semantics.
+# Goal: keep the graph focused on code + project docs that carry structural
+# signal. Exclude noise that costs tokens (semantic extraction) without value.
+
+# Dependencies and build artifacts
+node_modules/
+.next/
+dist/
+build/
+target/
+__pycache__/
+.git/
+
+# graphify / codegraph own outputs (regenerable)
+graphify-out/
+.codegraph/
+
+# Static assets - rarely add architectural signal
+public/
+assets/
+
+# Secrets / local env
+.env
+.env.*
+*.local
+"""
+
+
+def _write_graphifyignore_template(project_dir: Path) -> None:
+    """Write a starter .graphifyignore. Never overwrites an existing, tuned one."""
+    target = project_dir / ".graphifyignore"
+    if target.exists():
+        print("  .graphifyignore already exists - left untouched (tune it yourself)")
+        return
+    target.write_text(_GRAPHIFYIGNORE_TEMPLATE, encoding="utf-8")
+    print(f"  .graphifyignore written to {target.resolve()} - review and tune the scope")
+
+
+def project_setup(project_dir: Path | None = None) -> None:
+    """One-shot: turn on an auto-maintained knowledge graph for a project.
+
+    Runs the three setup steps that otherwise have to be done by hand:
+      1. install git hooks (post-commit/post-checkout) - free AST rebuild on commit
+      2. write a starter .graphifyignore (corpus scope)
+      3. write the CLAUDE.md section + PreToolUse hook (Claude consults the graph)
+    Idempotent: re-running skips anything already in place.
+    """
+    pdir = project_dir or Path(".")
+    print(f"[graphify] Wiring auto-maintained knowledge graph in {pdir.resolve()}\n")
+
+    print("1/3  git hooks (free code-layer rebuild on every commit)")
+    from graphify.hooks import install as hook_install
+    print(hook_install(pdir))
+    print()
+
+    print("2/3  corpus scope")
+    _write_graphifyignore_template(pdir)
+    print()
+
+    print("3/3  Claude Code integration")
+    claude_install(pdir)
+
+    print()
+    print("Setup complete. Next:")
+    print("  - run the initial build by invoking the /graphify skill on this project")
+    print("  - review .graphifyignore and trim the corpus to what matters")
+    print("  - commit: the post-commit hook keeps the code layer fresh for free")
+
+
 def main() -> None:
     # Check all known skill install locations for a stale version stamp
     for cfg in _PLATFORM_CONFIG.values():
@@ -652,6 +722,7 @@ def main() -> None:
         print("  hook install            install post-commit/post-checkout git hooks (all platforms)")
         print("  hook uninstall          remove git hooks")
         print("  hook status             check if git hooks are installed")
+        print("  project-setup [path]    one-shot: git hooks + .graphifyignore + CLAUDE.md section")
         print("  gemini install          write GEMINI.md section + BeforeTool hook (Gemini CLI)")
         print("  gemini uninstall        remove GEMINI.md section + BeforeTool hook")
         print("  cursor install          write .cursor/rules/graphify.mdc (Cursor)")
@@ -766,6 +837,9 @@ def main() -> None:
         else:
             print("Usage: graphify hook [install|uninstall|status]", file=sys.stderr)
             sys.exit(1)
+    elif cmd == "project-setup":
+        pdir = Path(sys.argv[2]) if len(sys.argv) > 2 and not sys.argv[2].startswith("-") else Path(".")
+        project_setup(pdir)
     elif cmd == "query":
         if len(sys.argv) < 3:
             print("Usage: graphify query \"<question>\" [--dfs] [--budget N] [--graph path]", file=sys.stderr)
