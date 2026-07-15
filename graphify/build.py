@@ -29,7 +29,7 @@ import unicodedata
 from pathlib import Path
 import networkx as nx
 
-from .validate import VALID_FILE_TYPES
+from .validate import BASE_FILE_TYPES
 from .ids import make_id, normalize_id as _normalize_id
 from .paths import default_graph_json as _default_graph_json
 from .validate import validate_extraction
@@ -386,6 +386,15 @@ def build_from_json(extraction: dict, *, directed: bool = False, root: str | Pat
         relative to root so all nodes share a consistent path key (#932).
     """
     _root = str(Path(root).resolve()) if root else None
+    # Effective file_type allowlist = core types + this project's `.graphify-types`
+    # domain layer (empty when no root / no file). Loaded once per build and used
+    # both to normalize node types below and to validate the extraction, so a
+    # project's declared types survive instead of collapsing to "concept". Local
+    # import keeps build.py free of an import cycle with detect.py.
+    from graphify.detect import load_project_file_types
+    _valid_types = BASE_FILE_TYPES | (
+        load_project_file_types(Path(_root)) if _root else frozenset()
+    )
     # NetworkX <= 3.1 serialised edges as "links"; remap to "edges" for compatibility.
     if "edges" not in extraction and "links" in extraction:
         extraction = dict(extraction, edges=extraction["links"])

@@ -859,6 +859,48 @@ def _load_dir_own_ignore(d: Path) -> list[tuple[Path, str]]:
     return patterns
 
 
+# A project-declared domain file_type slug. The bound (^[a-z][a-z0-9_-]{0,63}$)
+# is what keeps these safe to interpolate into Obsidian export tags / YAML — no
+# spaces, quotes, colons, or leading digits — so a hostile `.graphify-types`
+# cannot inject markup downstream. Mirrors the fork's original hardcoded slugs.
+_PROJECT_FILE_TYPE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
+
+
+def load_project_file_types(root: Path) -> frozenset[str]:
+    """Read project-declared domain file_types from ``.graphify-types`` at *root*.
+
+    One type slug per line; blank lines and ``#`` comments are ignored. Each slug
+    must match ``_PROJECT_FILE_TYPE_RE`` (a safe slug); an invalid one is skipped
+    with a single stderr warning rather than crashing the run. Returns an empty
+    frozenset when the file is absent or unreadable, so a project without a
+    ``.graphify-types`` keeps the core-only allowlist (backward compatible).
+
+    Discovery mirrors ``.graphifyignore``: the file lives at the project root
+    (sibling of ``.graphifyignore``). A cheap per-call read is fine — callers
+    invoke this once per build, not per file.
+    """
+    types_file = Path(root) / ".graphify-types"
+    try:
+        raw = types_file.read_text(encoding="utf-8", errors="ignore")
+    except (OSError, ValueError):
+        return frozenset()
+    slugs: set[str] = set()
+    for line in raw.splitlines():
+        slug = line.strip()
+        if not slug or slug.startswith("#"):
+            continue
+        if _PROJECT_FILE_TYPE_RE.match(slug):
+            slugs.add(slug)
+        else:
+            import sys as _sys
+            print(
+                f"[graphify] WARNING: ignoring invalid file_type {slug!r} in "
+                f"{types_file} — must match {_PROJECT_FILE_TYPE_RE.pattern}",
+                file=_sys.stderr,
+            )
+    return frozenset(slugs)
+
+
 def _load_graphifyignore(root: Path) -> list[tuple[Path, str]]:
     """Read .graphifyignore files and return (anchor_dir, pattern) pairs.
 

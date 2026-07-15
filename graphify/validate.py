@@ -1,33 +1,41 @@
 # validate extraction JSON against the graphify schema before graph assembly
 from __future__ import annotations
 
-# Canonical file types accepted by the graph. First row = upstream's set.
-# Second row = the fork's domain layer: semantic types that Nestor's projects
-# tag in Obsidian (Gaea-Legal uses decision/normativa/technology/component/
-# infrastructure). Kept as a CONTROLLED allowlist — anything outside it
-# collapses to "concept" in build.py rather than fragmenting the type space on
-# LLM typos, and every allowed value is a safe slug (no export-tag injection).
-# Extend the second row when a project introduces new domain types.
-VALID_FILE_TYPES = {
-    # upstream/core types emitted by v8's own extractors (doc_ref = RFC / doc
-    # references detected in code — kept so they aren't collapsed to concept)
+# Core file types the graph always accepts — emitted by v8's own extractors
+# (doc_ref = RFC / doc references detected in code, kept so they aren't collapsed
+# to concept). Domain types (decision, normativa, technology, ...) are NO LONGER
+# hardcoded here: each project declares its own in a `.graphify-types` file at its
+# root (see detect.load_project_file_types). The effective allowlist a build uses
+# is BASE_FILE_TYPES | that project set — every value stays a safe slug (no
+# export-tag injection), and anything outside the effective set collapses to
+# "concept" in build.py rather than fragmenting the type space on LLM typos.
+BASE_FILE_TYPES = frozenset({
     "code", "document", "paper", "image", "rationale", "concept", "doc_ref",
-    # fork domain layer tagged in Obsidian
-    "decision", "normativa", "technology", "component", "infrastructure", "entity",
-}
+})
+# Backward-compat alias for modules/tests that import the old name. Now base-only;
+# callers that want the project's domain types must pass them via ``valid_types``.
+VALID_FILE_TYPES = BASE_FILE_TYPES
 VALID_CONFIDENCES = {"EXTRACTED", "INFERRED", "AMBIGUOUS"}
 REQUIRED_NODE_FIELDS = {"id", "label", "file_type", "source_file"}
 REQUIRED_EDGE_FIELDS = {"source", "target", "relation", "confidence", "source_file"}
 
 
-def validate_extraction(data: dict) -> list[str]:
+def validate_extraction(
+    data: dict, valid_types: frozenset[str] | None = None
+) -> list[str]:
     """
     Validate an extraction JSON dict against the graphify schema.
     Returns a list of error strings - empty list means valid.
+
+    valid_types: the effective file_type allowlist for this build. When None,
+    falls back to BASE_FILE_TYPES (core types only) — callers that know the
+    project root pass ``BASE_FILE_TYPES | load_project_file_types(root)`` so the
+    project's `.graphify-types` domain types validate too.
     """
     if not isinstance(data, dict):
         return ["Extraction must be a JSON object"]
 
+    valid = valid_types if valid_types is not None else BASE_FILE_TYPES
     errors: list[str] = []
 
     # Collected during the node pass so the edge pass can reuse it. Only
@@ -58,18 +66,18 @@ def validate_extraction(data: dict) -> list[str]:
                     )
                 else:
                     node_ids.add(node["id"])
-            # file_type must be one of the canonical types. VALID_FILE_TYPES now
-            # includes the fork's domain layer (normativa, decision, ...), so those
-            # pass; genuine typos/junk are still reported here and collapsed to
-            # "concept" by build.py, keeping the type space clean. Guard the
-            # membership test with isinstance: a list/dict file_type (malformed
-            # extraction) is unhashable and would crash `in VALID_FILE_TYPES`.
+            # file_type must be one of the effective types (BASE_FILE_TYPES plus
+            # the project's `.graphify-types` domain layer, threaded in via
+            # ``valid_types``); genuine typos/junk are still reported here and
+            # collapsed to "concept" by build.py, keeping the type space clean.
+            # Guard the membership test with isinstance: a list/dict file_type
+            # (malformed extraction) is unhashable and would crash `in valid`.
             if "file_type" in node:
                 _ft = node["file_type"]
-                if not isinstance(_ft, str) or _ft not in VALID_FILE_TYPES:
+                if not isinstance(_ft, str) or _ft not in valid:
                     errors.append(
                         f"Node {i} (id={node.get('id', '?')!r}) has invalid file_type "
-                        f"{_ft!r} - must be one of {sorted(VALID_FILE_TYPES)}"
+                        f"{_ft!r} - must be one of {sorted(valid)}"
                     )
 
     # Edges - accept "links" (NetworkX <= 3.1) as fallback for "edges"
@@ -108,9 +116,9 @@ def validate_extraction(data: dict) -> list[str]:
     return errors
 
 
-def assert_valid(data: dict) -> None:
+def assert_valid(data: dict, valid_types: frozenset[str] | None = None) -> None:
     """Raise ValueError with all errors if extraction is invalid."""
-    errors = validate_extraction(data)
+    errors = validate_extraction(data, valid_types=valid_types)
     if errors:
         msg = f"Extraction JSON has {len(errors)} error(s):\n" + "\n".join(f"  • {e}" for e in errors)
         raise ValueError(msg)
