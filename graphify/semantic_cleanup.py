@@ -85,7 +85,13 @@ def validate_semantic_fragment(
             continue
         _validate_semantic_id(errors, f"nodes[{i}].id", node.get("id"))
         file_type = node.get("file_type")
-        if file_type is not None and file_type not in _effective_types:
+        # A non-string, non-None file_type (list/dict from a malformed
+        # fragment) is unhashable and would crash the frozenset membership
+        # test; guard it the same way validate.py's isinstance(_ft, str)
+        # check does, so it becomes a clean error instead of a crash.
+        if file_type is not None and (
+            not isinstance(file_type, str) or file_type not in _effective_types
+        ):
             errors.append(
                 f"nodes[{i}].file_type {file_type!r} is not one of "
                 f"{sorted(_effective_types)}"

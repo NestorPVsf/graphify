@@ -428,8 +428,13 @@ def build_from_json(extraction: dict, *, directed: bool = False, root: str | Pat
         # .graphify-types domain layer) are preserved for Obsidian tagging; known
         # FORMAT aliases are normalized; anything else (LLM typos, junk) collapses
         # to "concept" so the type space stays clean and export tags stay safe.
-        if ft and ft not in _valid_types:
-            node["file_type"] = _FILE_TYPE_SYNONYMS.get(ft, "concept")
+        # A non-string ft (list/dict from a malformed extraction) is unhashable
+        # and would crash the frozenset membership test below, so guard it the
+        # same way validate.py's isinstance(_ft, str) check does.
+        if ft and (not isinstance(ft, str) or ft not in _valid_types):
+            node["file_type"] = (
+                _FILE_TYPE_SYNONYMS.get(ft, "concept") if isinstance(ft, str) else "concept"
+            )
 
     # Canonicalize hyperedge member lists (#1561): producers sometimes key the
     # member list `members`/`node_ids` instead of `nodes`. Fold aliases onto

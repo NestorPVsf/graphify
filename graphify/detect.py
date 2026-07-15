@@ -881,7 +881,7 @@ def load_project_file_types(root: Path) -> frozenset[str]:
     """
     types_file = Path(root) / ".graphify-types"
     try:
-        raw = types_file.read_text(encoding="utf-8", errors="ignore")
+        raw = types_file.read_text(encoding="utf-8-sig", errors="ignore")
     except (OSError, ValueError):
         return frozenset()
     slugs: set[str] = set()

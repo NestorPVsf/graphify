@@ -340,6 +340,62 @@ def test_cluster_only_graph_in_graphify_out_writes_beside_it(tmp_path):
     assert not (cwd / "graphify-out").exists()             # no CWD pollution
 
 
+def test_cluster_only_external_graph_preserves_custom_file_types(tmp_path):
+    """[Capa 1 regression] `cluster-only --graph <other-project>/graphify-out/graph.json`
+    run from an unrelated CWD must derive the effective build root from the graph
+    itself (via `_infer_merge_root`), not from the CWD/watch_path. Without that,
+    the external project's `.graphify-types` domain types are never found, so a
+    recluster silently collapses them to "concept" and overwrites the external
+    graph.json with the collapsed version. This test FAILS on the unfixed code
+    (root=watch_path) and PASSES once cluster-only derives root from graph_json."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".graphify-types").write_text("normativa" + chr(10), encoding="utf-8")
+
+    extraction = {
+        "nodes": [
+            {"id": "n0", "label": "Law A", "file_type": "normativa", "source_file": "law.md"},
+            {"id": "n1", "label": "func_a", "file_type": "code", "source_file": "a.py"},
+            {"id": "n2", "label": "func_b", "file_type": "code", "source_file": "b.py"},
+            {"id": "n3", "label": "doc", "file_type": "document", "source_file": "readme.md"},
+        ],
+        "edges": [
+            {"source": "n0", "target": "n1", "relation": "governs", "confidence": "EXTRACTED", "source_file": "law.md"},
+            {"source": "n1", "target": "n2", "relation": "calls", "confidence": "EXTRACTED", "source_file": "a.py"},
+            {"source": "n2", "target": "n3", "relation": "documented_by", "confidence": "EXTRACTED", "source_file": "b.py"},
+        ],
+        "input_tokens": 0,
+        "output_tokens": 0,
+    }
+    from graphify.build import build_from_json
+    from graphify.cluster import cluster
+    from graphify.export import to_json
+
+    out_dir = project / "graphify-out"
+    out_dir.mkdir()
+    G = build_from_json(extraction, root=str(project))
+    # Sanity check: the initial build (correct root) preserves the domain type -
+    # isolates that only the CLI recluster step below is under test.
+    assert G.nodes["n0"]["file_type"] == "normativa"
+    communities = cluster(G)
+    to_json(G, communities, str(out_dir / "graph.json"))
+
+    # Deliberately no .graphify-types here - proves the recluster below cannot
+    # be silently relying on the CWD for the allowlist.
+    cwd = tmp_path / "elsewhere"
+    cwd.mkdir()
+
+    r = _run(
+        ["cluster-only", ".", "--graph", str(out_dir / "graph.json"), "--no-viz", "--no-label"],
+        cwd,
+    )
+    assert r.returncode == 0, r.stderr
+
+    rebuilt = json.loads((out_dir / "graph.json").read_text(encoding="utf-8"))
+    node = next(n for n in rebuilt["nodes"] if n["id"] == "n0")
+    assert node["file_type"] == "normativa"
+
+
 def test_extract_out_does_not_pollute_corpus(tmp_path):
     """#1747 Case 1: `extract <corpus> --out <elsewhere>` must not leave a stray
     graphify-out/ (cache, stat-index) inside the scanned corpus."""

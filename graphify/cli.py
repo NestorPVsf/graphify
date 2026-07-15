@@ -1042,7 +1042,7 @@ def dispatch_command(cmd: str) -> None:
             )
             sys.exit(1)
         from networkx.readwrite import json_graph as _jg
-        from graphify.build import build_from_json
+        from graphify.build import build_from_json, _infer_merge_root
         from graphify.cluster import cluster, score_all, remap_communities_to_previous
         from graphify.analyze import (
             god_nodes,
@@ -1075,7 +1075,21 @@ def dispatch_command(cmd: str) -> None:
             )
         _raw = json.loads(graph_json.read_text(encoding="utf-8"))
         _directed = bool(_raw.get("directed", False))
-        G = build_from_json(_raw, directed=_directed, root=watch_path)
+        # `--graph` pointing at ANOTHER project's graphify-out/ (#1747 Case 2,
+        # see the out= derivation below, which shares this same condition) means
+        # watch_path (normally the CWD) is not that project's root, so its
+        # .graphify-types would never be found and its domain types would
+        # silently collapse to "concept" on every recluster. Derive the
+        # effective root from the graph itself in that case via
+        # _infer_merge_root (committed .graphify_root marker, falling back to
+        # graph.json's grandparent), falling back to watch_path when neither
+        # resolves.
+        _out_name = Path(_GRAPHIFY_OUT).name
+        _external_graph = graph_override is not None and graph_json.parent.name == _out_name
+        _effective_root = (
+            (_infer_merge_root(graph_json) or watch_path) if _external_graph else watch_path
+        )
+        G = build_from_json(_raw, directed=_directed, root=_effective_root)
         print(f"Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
         stages.mark("load")
         print("Re-clustering...")
@@ -1105,8 +1119,9 @@ def dispatch_command(cmd: str) -> None:
         # before re-clustering (#934) — fall back to the CWD's graphify-out/,
         # which is the restore-into-place workflow that test pins. The default
         # (no --graph) case already has graph_json under watch_path/graphify-out.
-        _out_name = Path(_GRAPHIFY_OUT).name
-        if graph_override is not None and graph_json.parent.name == _out_name:
+        # _external_graph (computed above, alongside the effective build root)
+        # is this same condition, reused here rather than recomputed.
+        if _external_graph:
             out = graph_json.parent
         else:
             out = watch_path / _GRAPHIFY_OUT
