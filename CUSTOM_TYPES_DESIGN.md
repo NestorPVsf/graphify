@@ -113,11 +113,14 @@ graph actually uses it.)
 **Merge**: DONE — fast-forward `v8-custom-types` → `v8-migration` (278759d) + push to origin. Production honors `.graphify-types`.
 **PVSF counters**: DONE — `graphify` skill moved to always-on (43/59).
 
-**CAPA 2 — LLM *generation* path = DEFERRED to a design session (NOT mechanical).** For the LLM to EMIT custom types, the skillgen extraction prompt must change — but that prompt (`tools/skillgen/fragments/references/shared/extraction-spec.md`) states *"file_type MUST be one of exactly these six values... any other rejected"* and is a SHARED/static fragment guarded by CI (`--schema-singleton`, `--monolith-roundtrip` for aider/devin monoliths, `--check` over 134 artifacts). Reconciling per-project custom types with the enum-singleton design needs deliberate design:
-- (a) how a generic/shared prompt instructs the LLM to read `.graphify-types` at runtime without breaking the singleton;
-- (b) thread root into aider/devin `build_from_json` (low-risk, already sanctioned by `_is_directed_fix_line`) — verify the INPUT_PATH substitution machinery exists in the monoliths first;
-- (c) pass `valid_types` to `load_validated_semantic_fragment` (skill-devin.md:351 calls it without them → a domain-typed chunk is rejected and dropped);
-- (d) add sanction predicates to gen.py + re-bless `expected/` + run the 5 guards + tests/test_skillgen.py.
+**CAPA 2 — LLM *generation* path = SHIPPED (8b3fef4 + 270f8f5, merged to `v8-migration`; design in `CUSTOM_TYPES_CAPA2_DESIGN.md`).** The skillgen extraction prompt now makes the LLM EMIT per-project domain types, reconciled with the enum-singleton CI via a runtime-resolved placeholder:
+- **Decision**: inject a `PROJECT_TYPES` placeholder (same substitution contract as FILE_LIST/INPUT_PATH), resolved once from `.graphify-types` and substituted into every extraction prompt — deterministic (the model is *told* the valid types), not a per-subagent file-read. Both the enum prose AND the JSON schema example widen to "base six + PROJECT_TYPES"; `ENUM_PROSE` stays byte-verbatim so `--schema-singleton` / `_is_enum_line` stay green.
+- (a) DONE via the placeholder above (resolution prose in core.md + both monoliths; slug filtered to the safe-slug regex so the announced set matches what the engine accepts).
+- (b) DONE — root threaded into every aider/devin `build_from_json` (sanctioned by `_is_directed_fix_line`; INPUT_PATH machinery confirmed present).
+- (c) DONE — devin computes `valid = BASE_FILE_TYPES | load_project_file_types(INPUT_PATH)` and passes `valid_types=valid` to `load_validated_semantic_fragment` (was dropping whole chunks). aider never calls it (raw merge), so it needed only (a)+(b).
+- (d) DONE — new `_is_custom_types_fix_line` predicate in gen.py (narrow, feature-specific substrings) + re-bless; 5 guards green (RAN, not SKIPPED), test_skillgen 59, new `test_capa2_project_types_survive_in_generated_runbooks` locks the feature so a future revert fails CI.
+
+**Capa 2 2nd opinion**: Codex `gpt-5.6-sol` xhigh, read-only → caught a BLOCKING bug the design missed (the JSON schema example still closed the enum right after `concept` under "match this schema exactly" → the LLM would treat it as authoritative and never emit domain types, neutralizing the feature) + 3 hardening findings (predicate breadth, test gap, slug-regex desync). All 4 fixed and re-verified.
 
 **Follow-ups (out of scope, tracked separately):**
 - export.py: escape file_type in `export obsidian --graph` (loads JSON raw via node_link_graph, bypasses build_from_json normalization → Markdown/HTML injection into the Obsidian vault). Medium.
