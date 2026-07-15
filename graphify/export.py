@@ -492,7 +492,15 @@ def to_obsidian(
 
         # Build tags for this node
         ftype = data.get("file_type", "")
-        ftype_tag = _FTYPE_TAG.get(ftype, f"graphify/{ftype}" if ftype else "graphify/document")
+        # Sanitize the raw file_type before it becomes an Obsidian tag. Fork
+        # domain types are arbitrary strings and, unlike `type:` below (wrapped by
+        # _yaml_str), a tag is emitted raw into the `tags:` list — an unsanitized
+        # value could inject sibling YAML keys. _obsidian_tag strips everything
+        # except [A-Za-z0-9_-/]; an all-junk type falls back to graphify/document.
+        _ftype_slug = _obsidian_tag(ftype)
+        ftype_tag = _FTYPE_TAG.get(ftype) or (
+            f"graphify/{_ftype_slug}" if _ftype_slug else "graphify/document"
+        )
         dom_conf = _dominant_confidence(node_id)
         conf_tag = f"graphify/{dom_conf}"
         comm_tag = f"community/{_obsidian_tag(community_name)}"

@@ -207,6 +207,24 @@ def test_file_type_synonym_mapping():
     assert G.nodes["n3"]["file_type"] == "concept"
 
 
+def test_fork_semantic_types_preserved():
+    """[FORK] Domain file_types used for Obsidian tagging are canonical (in
+    VALID_FILE_TYPES) and survive build intact — not collapsed to 'concept'."""
+    types = ["normativa", "decision", "technology", "component", "infrastructure", "entity"]
+    ext = {
+        "nodes": [
+            {"id": f"n{i}", "label": t, "file_type": t, "source_file": "d.md"}
+            for i, t in enumerate(types)
+        ],
+        "edges": [],
+        "input_tokens": 0,
+        "output_tokens": 0,
+    }
+    G = build_from_json(ext)
+    for i, t in enumerate(types):
+        assert G.nodes[f"n{i}"]["file_type"] == t
+
+
 def test_ghost_merge_unique_located_node_still_merges():
     """#1145 ghost-merge: a semantic ghost collapses into the single AST node
     sharing its (basename, label), and edges re-point to the AST node."""

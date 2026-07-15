@@ -1,7 +1,20 @@
 # validate extraction JSON against the graphify schema before graph assembly
 from __future__ import annotations
 
-VALID_FILE_TYPES = {"code", "document", "paper", "image", "rationale", "concept"}
+# Canonical file types accepted by the graph. First row = upstream's set.
+# Second row = the fork's domain layer: semantic types that Nestor's projects
+# tag in Obsidian (Gaea-Legal uses decision/normativa/technology/component/
+# infrastructure). Kept as a CONTROLLED allowlist — anything outside it
+# collapses to "concept" in build.py rather than fragmenting the type space on
+# LLM typos, and every allowed value is a safe slug (no export-tag injection).
+# Extend the second row when a project introduces new domain types.
+VALID_FILE_TYPES = {
+    # upstream/core types emitted by v8's own extractors (doc_ref = RFC / doc
+    # references detected in code — kept so they aren't collapsed to concept)
+    "code", "document", "paper", "image", "rationale", "concept", "doc_ref",
+    # fork domain layer tagged in Obsidian
+    "decision", "normativa", "technology", "component", "infrastructure", "entity",
+}
 VALID_CONFIDENCES = {"EXTRACTED", "INFERRED", "AMBIGUOUS"}
 REQUIRED_NODE_FIELDS = {"id", "label", "file_type", "source_file"}
 REQUIRED_EDGE_FIELDS = {"source", "target", "relation", "confidence", "source_file"}
@@ -45,18 +58,15 @@ def validate_extraction(data: dict) -> list[str]:
                     )
                 else:
                     node_ids.add(node["id"])
-            # [FORK FIX] file_type is NOT a strict allowlist. Semantic extractors
-            # emit rich domain types (normativa, decision, technology, component,
-            # infrastructure...) that carry real signal; rejecting them would
-            # discard it. Accept any non-empty string; only a missing/blank/
-            # non-string file_type is an actual error.
-            if "file_type" in node:
-                _ft = node["file_type"]
-                if not isinstance(_ft, str) or not _ft.strip():
-                    errors.append(
-                        f"Node {i} (id={node.get('id', '?')!r}) has invalid file_type "
-                        f"{_ft!r} - must be a non-empty string"
-                    )
+            # file_type must be one of the canonical types. VALID_FILE_TYPES now
+            # includes the fork's domain layer (normativa, decision, ...), so those
+            # pass; genuine typos/junk are still reported here and collapsed to
+            # "concept" by build.py, keeping the type space clean.
+            if "file_type" in node and node["file_type"] not in VALID_FILE_TYPES:
+                errors.append(
+                    f"Node {i} (id={node.get('id', '?')!r}) has invalid file_type "
+                    f"'{node['file_type']}' - must be one of {sorted(VALID_FILE_TYPES)}"
+                )
 
     # Edges - accept "links" (NetworkX <= 3.1) as fallback for "edges"
     edge_list = data.get("edges") if "edges" in data else data.get("links")

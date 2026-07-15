@@ -28,6 +28,8 @@ import sys
 import unicodedata
 from pathlib import Path
 import networkx as nx
+
+from .validate import VALID_FILE_TYPES
 from .ids import make_id, normalize_id as _normalize_id
 from .paths import default_graph_json as _default_graph_json
 from .validate import validate_extraction
@@ -60,10 +62,15 @@ _EDGE_LANG_FAMILY: dict[str, str] = {
 # carry real domain signal used for Obsidian tags / panel semantics. Unknown
 # types are preserved as-is by the file_type pass below (fork v3 behavior).
 _FILE_TYPE_SYNONYMS = {
+    # format/structure aliases -> canonical format type
     "markdown": "document",
     "text": "document",
     "tool": "code",
     "library": "code",
+    # common domain-type variants -> canonical fork type, to curb fragmentation
+    # from LLM wording drift (codex-review MEDIUM finding)
+    "tech": "technology",
+    "infra": "infrastructure",
 }
 
 
@@ -415,8 +422,8 @@ def build_from_json(extraction: dict, *, directed: bool = False, root: str | Pat
         # [FORK FIX] Normalize known FORMAT aliases; PRESERVE any other type as-is.
         # Do NOT collapse semantic types (normativa, decision, technology...) to
         # "concept" — the fork relies on rich file_types for Obsidian tagging.
-        if ft and ft not in {"code", "document", "paper", "image", "rationale", "concept"}:
-            node["file_type"] = _FILE_TYPE_SYNONYMS.get(ft, ft)
+        if ft and ft not in VALID_FILE_TYPES:
+            node["file_type"] = _FILE_TYPE_SYNONYMS.get(ft, "concept")
 
     # Canonicalize hyperedge member lists (#1561): producers sometimes key the
     # member list `members`/`node_ids` instead of `nodes`. Fold aliases onto

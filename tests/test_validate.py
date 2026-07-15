@@ -35,6 +35,17 @@ def test_invalid_file_type():
     errors = validate_extraction(data)
     assert any("file_type" in e for e in errors)
 
+
+def test_fork_semantic_type_is_valid():
+    """[FORK] Domain types (normativa, decision, ...) are canonical now — a node
+    carrying one is not flagged with a file_type error."""
+    data = {
+        "nodes": [{"id": "n1", "label": "X", "file_type": "normativa", "source_file": "x.md"}],
+        "edges": [],
+    }
+    errors = validate_extraction(data)
+    assert not any("file_type" in e for e in errors)
+
 def test_invalid_confidence():
     data = {
         "nodes": [
