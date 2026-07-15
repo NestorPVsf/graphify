@@ -93,3 +93,23 @@ graph actually uses it.)
 - Backward compatible. Security: validate project types against the slug regex.
 - Do not change `_reconcile` preservation logic (node preservation is type-agnostic).
 - Commit on `v8-custom-types` with conventional messages. Do NOT push.
+
+---
+
+## STATUS (2026-07-15)
+
+**DONE** (commits 509311d, 180bcd2, f6ff33d on v8-custom-types):
+- detect.py: `load_project_file_types()` loader (safe-slug validated, warns + skips bad slugs).
+- validate.py: `BASE_FILE_TYPES` (7 core); `VALID_FILE_TYPES` = base alias; `valid_types` param on `validate_extraction`; isinstance guard kept.
+- build.py: `build_from_json` computes effective allowlist = BASE | project types (loaded from `root`), used in both normalization and `validate_extraction`.
+- semantic_cleanup.py: `validate_semantic_fragment` / `load_validated_semantic_fragment` take `valid_types`.
+- Root threaded into ALL Python `build_from_json` callers: watch.py `_rebuild_code` + cli.py recluster (were missing it — the bug that collapsed types); build.py + diagnostics.py already passed it.
+- Gaea `.graphify-types` created (decision/normativa/technology/component/infrastructure).
+- Tests: 93 pass (1 preexisting Windows failure, unrelated). Loader + preserve-with-config + collapse-without-config covered.
+- **VERIFIED**: rebuild over Gaea's real graph preserves 30/30 custom nodes WITH `.graphify-types`, collapses them to concept WITHOUT it. The critical production flow (post-commit hook `_rebuild_code`) is correct.
+
+**PENDING** (remate — the LLM *generation* path, lower risk; preservation already works):
+- skill-*.md extraction templates: some pass `root='INPUT_PATH'` to `build_from_json`, some (aider, devin) pass only `directed=`. For the LLM to GENERATE new domain-typed nodes, the active skill's extraction code should (a) pass root, (b) load `.graphify-types` and pass `valid_types` to `load_validated_semantic_fragment`, (c) inject the project types into the emit prompt.
+- 2nd opinion (Codex read-only / cx-reviewer) before merging to v8-migration (production).
+- Merge v8-custom-types -> v8-migration + push; then production honors `.graphify-types`.
+- Update PVSF skill counters (graphify moved to always-on).
