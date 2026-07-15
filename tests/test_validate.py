@@ -37,14 +37,33 @@ def test_invalid_file_type():
 
 
 def test_fork_semantic_type_is_valid():
-    """[FORK] Domain types (normativa, decision, ...) are canonical now — a node
-    carrying one is not flagged with a file_type error."""
+    """[FORK] A project domain type passes validation when supplied via valid_types."""
+    data = {
+        "nodes": [{"id": "n1", "label": "X", "file_type": "normativa", "source_file": "x.md"}],
+        "edges": [],
+    }
+    errors = validate_extraction(data, valid_types=frozenset({"normativa"}))
+    assert not any("file_type" in e for e in errors)
+
+
+def test_domain_type_invalid_without_valid_types():
+    """Base-only (no valid_types passed): a domain type is reported invalid."""
     data = {
         "nodes": [{"id": "n1", "label": "X", "file_type": "normativa", "source_file": "x.md"}],
         "edges": [],
     }
     errors = validate_extraction(data)
-    assert not any("file_type" in e for e in errors)
+    assert any("file_type" in e for e in errors)
+
+
+def test_load_project_file_types(tmp_path):
+    """Loader reads slugs, ignores comments/blanks, skips unsafe slugs, empty when absent."""
+    from graphify.detect import load_project_file_types
+    assert load_project_file_types(tmp_path) == frozenset()
+    (tmp_path / ".graphify-types").write_text(
+        "# domain types\nnormativa\ndecision\n\nBad Type\n1bad\nok_type\n", encoding="utf-8"
+    )
+    assert load_project_file_types(tmp_path) == frozenset({"normativa", "decision", "ok_type"})
 
 
 def test_unhashable_file_type_does_not_crash():

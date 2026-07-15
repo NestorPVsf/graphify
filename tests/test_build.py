@@ -207,10 +207,11 @@ def test_file_type_synonym_mapping():
     assert G.nodes["n3"]["file_type"] == "concept"
 
 
-def test_fork_semantic_types_preserved():
-    """[FORK] Domain file_types used for Obsidian tagging are canonical (in
-    VALID_FILE_TYPES) and survive build intact — not collapsed to 'concept'."""
-    types = ["normativa", "decision", "technology", "component", "infrastructure", "entity"]
+def test_fork_semantic_types_preserved(tmp_path):
+    """[FORK] A project's .graphify-types domain types are in the effective
+    allowlist and survive build intact - not collapsed to 'concept'."""
+    types = ["normativa", "decision", "technology", "component", "infrastructure"]
+    (tmp_path / ".graphify-types").write_text("\n".join(types) + "\n", encoding="utf-8")
     ext = {
         "nodes": [
             {"id": f"n{i}", "label": t, "file_type": t, "source_file": "d.md"}
@@ -220,9 +221,21 @@ def test_fork_semantic_types_preserved():
         "input_tokens": 0,
         "output_tokens": 0,
     }
-    G = build_from_json(ext)
+    G = build_from_json(ext, root=str(tmp_path))
     for i, t in enumerate(types):
         assert G.nodes[f"n{i}"]["file_type"] == t
+
+
+def test_undeclared_domain_type_collapses_to_concept(tmp_path):
+    """Without a .graphify-types (base-only allowlist), a domain type collapses."""
+    ext = {
+        "nodes": [{"id": "n1", "label": "N", "file_type": "normativa", "source_file": "d.md"}],
+        "edges": [],
+        "input_tokens": 0,
+        "output_tokens": 0,
+    }
+    G = build_from_json(ext, root=str(tmp_path))
+    assert G.nodes["n1"]["file_type"] == "concept"
 
 
 def test_ghost_merge_unique_located_node_still_merges():

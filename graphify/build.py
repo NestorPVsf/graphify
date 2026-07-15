@@ -424,10 +424,11 @@ def build_from_json(extraction: dict, *, directed: bool = False, root: str | Pat
         if node.get("file_type") in (None, ""):
             node["file_type"] = "concept"
         ft = node.get("file_type", "")
-        # [FORK FIX] Normalize known FORMAT aliases; PRESERVE any other type as-is.
-        # Do NOT collapse semantic types (normativa, decision, technology...) to
-        # "concept" — the fork relies on rich file_types for Obsidian tagging.
-        if ft and ft not in VALID_FILE_TYPES:
+        # Types in the effective allowlist (core BASE_FILE_TYPES + this project's
+        # .graphify-types domain layer) are preserved for Obsidian tagging; known
+        # FORMAT aliases are normalized; anything else (LLM typos, junk) collapses
+        # to "concept" so the type space stays clean and export tags stay safe.
+        if ft and ft not in _valid_types:
             node["file_type"] = _FILE_TYPE_SYNONYMS.get(ft, "concept")
 
     # Canonicalize hyperedge member lists (#1561): producers sometimes key the
@@ -438,7 +439,7 @@ def build_from_json(extraction: dict, *, directed: bool = False, root: str | Pat
     for he in extraction.get("hyperedges", []) or []:
         _normalize_hyperedge_members(he)
 
-    errors = validate_extraction(extraction)
+    errors = validate_extraction(extraction, valid_types=_valid_types)
     # Dangling edges (stdlib/external imports) are expected - only warn about real schema errors.
     real_errors = [e for e in errors if "does not match any node id" not in e]
     if real_errors:

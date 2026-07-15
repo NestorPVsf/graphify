@@ -38,7 +38,9 @@ VALID_SEMANTIC_FILE_TYPES = frozenset(VALID_FILE_TYPES)
 _SEMANTIC_ID_RE = re.compile(r"^[A-Za-z0-9._:-]+$")
 
 
-def validate_semantic_fragment(fragment: object) -> list[str]:
+def validate_semantic_fragment(
+    fragment: object, valid_types: frozenset[str] | None = None
+) -> list[str]:
     """Return validation errors for an untrusted semantic extraction fragment.
 
     Empty list means valid. Called by skill merge code before
@@ -49,6 +51,10 @@ def validate_semantic_fragment(fragment: object) -> list[str]:
     """
     if not isinstance(fragment, dict):
         return ["fragment must be a JSON object"]
+    # Effective allowlist = core types + the project's .graphify-types domain
+    # layer when the caller supplies it; falls back to core-only otherwise so a
+    # project's declared types (normativa, decision, ...) pass this gate.
+    _effective_types = valid_types if valid_types is not None else VALID_SEMANTIC_FILE_TYPES
 
     errors: list[str] = []
     try:
@@ -79,10 +85,10 @@ def validate_semantic_fragment(fragment: object) -> list[str]:
             continue
         _validate_semantic_id(errors, f"nodes[{i}].id", node.get("id"))
         file_type = node.get("file_type")
-        if file_type is not None and file_type not in VALID_SEMANTIC_FILE_TYPES:
+        if file_type is not None and file_type not in _effective_types:
             errors.append(
                 f"nodes[{i}].file_type {file_type!r} is not one of "
-                f"{sorted(VALID_SEMANTIC_FILE_TYPES)}"
+                f"{sorted(_effective_types)}"
             )  # validate file_type before any sanitize path can run
 
     for i, edge in enumerate(edges):
@@ -127,7 +133,9 @@ def validate_semantic_fragment(fragment: object) -> list[str]:
     return errors
 
 
-def load_validated_semantic_fragment(path: Path) -> tuple[dict | None, list[str]]:
+def load_validated_semantic_fragment(
+    path: Path, valid_types: frozenset[str] | None = None
+) -> tuple[dict | None, list[str]]:
     """Load and validate a semantic chunk, rejecting oversize files before parsing.
 
     The size guard runs against `path.stat().st_size` so an attacker-supplied
@@ -147,7 +155,7 @@ def load_validated_semantic_fragment(path: Path) -> tuple[dict | None, list[str]
         return None, [f"invalid JSON: {exc}"]
     except OSError as exc:
         return None, [f"could not read {path}: {exc}"]
-    errors = validate_semantic_fragment(fragment)
+    errors = validate_semantic_fragment(fragment, valid_types)
     return (None, errors) if errors else (fragment, [])
 
 
