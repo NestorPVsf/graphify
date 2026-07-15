@@ -46,6 +46,17 @@ def test_fork_semantic_type_is_valid():
     errors = validate_extraction(data)
     assert not any("file_type" in e for e in errors)
 
+
+def test_unhashable_file_type_does_not_crash():
+    """[REGRESSION] A list/dict file_type is unhashable; the allowlist membership
+    check must not raise TypeError — report a clean validation error instead."""
+    data = {
+        "nodes": [{"id": "n1", "label": "X", "file_type": ["a"], "source_file": "x.md"}],
+        "edges": [],
+    }
+    errors = validate_extraction(data)  # must not raise
+    assert any("file_type" in e for e in errors)
+
 def test_invalid_confidence():
     data = {
         "nodes": [

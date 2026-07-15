@@ -61,12 +61,16 @@ def validate_extraction(data: dict) -> list[str]:
             # file_type must be one of the canonical types. VALID_FILE_TYPES now
             # includes the fork's domain layer (normativa, decision, ...), so those
             # pass; genuine typos/junk are still reported here and collapsed to
-            # "concept" by build.py, keeping the type space clean.
-            if "file_type" in node and node["file_type"] not in VALID_FILE_TYPES:
-                errors.append(
-                    f"Node {i} (id={node.get('id', '?')!r}) has invalid file_type "
-                    f"'{node['file_type']}' - must be one of {sorted(VALID_FILE_TYPES)}"
-                )
+            # "concept" by build.py, keeping the type space clean. Guard the
+            # membership test with isinstance: a list/dict file_type (malformed
+            # extraction) is unhashable and would crash `in VALID_FILE_TYPES`.
+            if "file_type" in node:
+                _ft = node["file_type"]
+                if not isinstance(_ft, str) or _ft not in VALID_FILE_TYPES:
+                    errors.append(
+                        f"Node {i} (id={node.get('id', '?')!r}) has invalid file_type "
+                        f"{_ft!r} - must be one of {sorted(VALID_FILE_TYPES)}"
+                    )
 
     # Edges - accept "links" (NetworkX <= 3.1) as fallback for "edges"
     edge_list = data.get("edges") if "edges" in data else data.get("links")

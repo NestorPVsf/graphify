@@ -67,10 +67,6 @@ _FILE_TYPE_SYNONYMS = {
     "text": "document",
     "tool": "code",
     "library": "code",
-    # common domain-type variants -> canonical fork type, to curb fragmentation
-    # from LLM wording drift (codex-review MEDIUM finding)
-    "tech": "technology",
-    "infra": "infrastructure",
 }
 
 
