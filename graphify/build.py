@@ -53,23 +53,17 @@ _EDGE_LANG_FAMILY: dict[str, str] = {
 }
 
 
-# Synonym mapper for known invalid file_type values that LLM subagents commonly
-# emit. Keeps semantic intent close (markdown→document, tool→code) and falls
-# back to "concept" for any other invalid value (see #840).
+# Synonym mapper: normalize FORMAT/structure aliases onto their canonical form
+# (markdown/text→document, tool/library→code).
+# [FORK FIX] Semantic file_types (normativa, decision, technology, component,
+# infrastructure, framework, pattern...) are NOT collapsed to "concept" — they
+# carry real domain signal used for Obsidian tags / panel semantics. Unknown
+# types are preserved as-is by the file_type pass below (fork v3 behavior).
 _FILE_TYPE_SYNONYMS = {
     "markdown": "document",
     "text": "document",
     "tool": "code",
     "library": "code",
-    "pattern": "concept",
-    "principle": "concept",
-    "constraint": "concept",
-    "tech": "concept",
-    "technology": "concept",
-    "data-source": "concept",
-    "data_source": "concept",
-    "gotcha": "concept",
-    "framework": "concept",
 }
 
 
@@ -418,8 +412,11 @@ def build_from_json(extraction: dict, *, directed: bool = False, root: str | Pat
         if node.get("file_type") in (None, ""):
             node["file_type"] = "concept"
         ft = node.get("file_type", "")
+        # [FORK FIX] Normalize known FORMAT aliases; PRESERVE any other type as-is.
+        # Do NOT collapse semantic types (normativa, decision, technology...) to
+        # "concept" — the fork relies on rich file_types for Obsidian tagging.
         if ft and ft not in {"code", "document", "paper", "image", "rationale", "concept"}:
-            node["file_type"] = _FILE_TYPE_SYNONYMS.get(ft, "concept")
+            node["file_type"] = _FILE_TYPE_SYNONYMS.get(ft, ft)
 
     # Canonicalize hyperedge member lists (#1561): producers sometimes key the
     # member list `members`/`node_ids` instead of `nodes`. Fold aliases onto

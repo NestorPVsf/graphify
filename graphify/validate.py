@@ -45,11 +45,18 @@ def validate_extraction(data: dict) -> list[str]:
                     )
                 else:
                     node_ids.add(node["id"])
-            if "file_type" in node and node["file_type"] not in VALID_FILE_TYPES:
-                errors.append(
-                    f"Node {i} (id={node.get('id', '?')!r}) has invalid file_type "
-                    f"'{node['file_type']}' - must be one of {sorted(VALID_FILE_TYPES)}"
-                )
+            # [FORK FIX] file_type is NOT a strict allowlist. Semantic extractors
+            # emit rich domain types (normativa, decision, technology, component,
+            # infrastructure...) that carry real signal; rejecting them would
+            # discard it. Accept any non-empty string; only a missing/blank/
+            # non-string file_type is an actual error.
+            if "file_type" in node:
+                _ft = node["file_type"]
+                if not isinstance(_ft, str) or not _ft.strip():
+                    errors.append(
+                        f"Node {i} (id={node.get('id', '?')!r}) has invalid file_type "
+                        f"{_ft!r} - must be a non-empty string"
+                    )
 
     # Edges - accept "links" (NetworkX <= 3.1) as fallback for "edges"
     edge_list = data.get("edges") if "edges" in data else data.get("links")
