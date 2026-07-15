@@ -245,6 +245,8 @@ Only dispatch subagents for files listed in `graphify-out/.graphify_uncached.txt
 
 Load files from `graphify-out/.graphify_uncached.txt`. Split into chunks of 20-25 files each. Each image gets its own chunk (vision needs separate context). When splitting, group files from the same directory together so related artifacts land in the same chunk and cross-file relationships are more likely to be extracted.
 
+**PROJECT_TYPES resolution:** Read `.graphify-types` at INPUT_PATH (one slug per line; skip blank lines and `#` comments). If it has slugs, `PROJECT_TYPES` = ' — or one of this project's domain types: ' followed by the comma-joined slugs; otherwise `PROJECT_TYPES` is empty. This is run-level — same for every chunk, exactly like `DEEP_MODE` (see the "Before starting" note earlier in this step) — so resolve it once here and substitute it into every subagent prompt below, the same way you substitute INPUT_PATH. Only include slugs that match graphify's safe-slug pattern (lowercase, starts with a letter: `[a-z][a-z0-9_-]*`; see `graphify/detect.py:866`) — the engine silently skips any slug that doesn't match, so announcing an invalid one here would desync the prompt from what it actually accepts.
+
 **Step B2 - Dispatch ALL subagents in a single message (Codex)**
 
 > **Codex platform:** Uses `spawn_agent` + `wait_agent` + `close_agent` instead of the Agent tool.
@@ -254,7 +256,7 @@ Load files from `graphify-out/.graphify_uncached.txt`. Split into chunks of 20-2
 Call `spawn_agent` once per chunk — ALL in the same response so they run in parallel. Build the message by wrapping the extraction prompt in task-delegation framing:
 
 ```
-spawn_agent(agent_type="worker", message="Your task is to perform the following. Follow the instructions below exactly.\n\n<agent-instructions>\n[extraction prompt, with FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE substituted]\n</agent-instructions>\n\nExecute this now. Output ONLY the structured JSON response.")
+spawn_agent(agent_type="worker", message="Your task is to perform the following. Follow the instructions below exactly.\n\n<agent-instructions>\n[extraction prompt, with FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE, and PROJECT_TYPES substituted]\n</agent-instructions>\n\nExecute this now. Output ONLY the structured JSON response.")
 ```
 
 After all agents are dispatched, collect results sequentially in memory:
@@ -266,7 +268,7 @@ Parse each result as JSON. Accumulate nodes/edges/hyperedges across all results 
 
 Subagent prompt template:
 
-See `references/extraction-spec.md` for the compact subagent prompt (rules, node-ID format, confidence rubric, hyperedge and vision rules, JSON schema). Load it only here, only when at least one chunk holds a doc, paper, or image; a pure-code corpus has skipped Part B and never reads it. Pass each agent that prompt verbatim with FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, and DEEP_MODE substituted, and have it return the JSON inline.
+See `references/extraction-spec.md` for the compact subagent prompt (rules, node-ID format, confidence rubric, hyperedge and vision rules, JSON schema). Load it only here, only when at least one chunk holds a doc, paper, or image; a pure-code corpus has skipped Part B and never reads it. Pass each agent that prompt verbatim with FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE, and PROJECT_TYPES substituted, and have it return the JSON inline.
 
 **Step B3 - Collect, cache, and merge**
 

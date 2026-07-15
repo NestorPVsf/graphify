@@ -245,6 +245,8 @@ Only dispatch subagents for files listed in `graphify-out/.graphify_uncached.txt
 
 Load files from `graphify-out/.graphify_uncached.txt`. Split into chunks of 20-25 files each. Each image gets its own chunk (vision needs separate context). When splitting, group files from the same directory together so related artifacts land in the same chunk and cross-file relationships are more likely to be extracted.
 
+**PROJECT_TYPES resolution:** Read `.graphify-types` at INPUT_PATH (one slug per line; skip blank lines and `#` comments). If it has slugs, `PROJECT_TYPES` = ' — or one of this project's domain types: ' followed by the comma-joined slugs; otherwise `PROJECT_TYPES` is empty. This is run-level — same for every chunk, exactly like `DEEP_MODE` (see the "Before starting" note earlier in this step) — so resolve it once here and substitute it into every subagent prompt below, the same way you substitute INPUT_PATH. Only include slugs that match graphify's safe-slug pattern (lowercase, starts with a letter: `[a-z][a-z0-9_-]*`; see `graphify/detect.py:866`) — the engine silently skips any slug that doesn't match, so announcing an invalid one here would desync the prompt from what it actually accepts.
+
 **Step B2 - Dispatch ALL subagents in a single message**
 
 > Uses the `Task` tool for parallel subagent dispatch.
@@ -254,7 +256,7 @@ Load files from `graphify-out/.graphify_uncached.txt`. Split into chunks of 20-2
 Pass the extraction prompt as the task description:
 
 ```
-Task(description="Your task is to perform the following. Follow the instructions below exactly.\n\n<agent-instructions>\n[extraction prompt, with FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE substituted]\n</agent-instructions>\n\nExecute this now. Output ONLY the structured JSON response.")
+Task(description="Your task is to perform the following. Follow the instructions below exactly.\n\n<agent-instructions>\n[extraction prompt, with FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE, and PROJECT_TYPES substituted]\n</agent-instructions>\n\nExecute this now. Output ONLY the structured JSON response.")
 ```
 
 Each subagent writes its result to its own `graphify-out/.graphify_chunk_NN.json`. Collect results as each `Task` completes and parse each as JSON.
@@ -267,7 +269,7 @@ PROJECT_ROOT=$(pwd)  # cwd — where Part C globs graphify-out/ (NOT .graphify_r
 
 Subagent prompt template:
 
-See `references/extraction-spec.md` for the exact subagent prompt (JSON schema, node-ID rules, confidence rubric, hyperedge, and vision rules). Load it only here, only when at least one chunk holds a doc, paper, or image; a pure-code corpus has skipped Part B and never reads it. Pass each subagent that prompt verbatim with FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE, and CHUNK_PATH substituted, and have it write the result to CHUNK_PATH.
+See `references/extraction-spec.md` for the exact subagent prompt (JSON schema, node-ID rules, confidence rubric, hyperedge, and vision rules). Load it only here, only when at least one chunk holds a doc, paper, or image; a pure-code corpus has skipped Part B and never reads it. Pass each subagent that prompt verbatim with FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE, CHUNK_PATH, and PROJECT_TYPES substituted, and have it write the result to CHUNK_PATH.
 
 **Step B3 - Collect, cache, and merge**
 

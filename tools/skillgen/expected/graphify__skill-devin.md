@@ -269,6 +269,8 @@ Only dispatch subagents for files listed in `graphify-out/.graphify_uncached.txt
 
 Load files from `graphify-out/.graphify_uncached.txt`. Split into chunks of 20-25 files each. Each image gets its own chunk (vision needs separate context). When splitting, group files from the same directory together so related artifacts land in the same chunk and cross-file relationships are more likely to be extracted.
 
+**PROJECT_TYPES resolution:** Read `.graphify-types` at INPUT_PATH (one slug per line; skip blank lines and `#` comments). If it has slugs, `PROJECT_TYPES` = ' — or one of this project's domain types: ' followed by the comma-joined slugs; otherwise `PROJECT_TYPES` is empty. This is run-level — same for every chunk — so resolve it once here and substitute it into every subagent prompt dispatched below, the same way you substitute INPUT_PATH. Only include slugs that match graphify's safe-slug pattern (lowercase, starts with a letter: `[a-z][a-z0-9_-]*`; see `graphify/detect.py:866`) — the engine silently skips any slug that doesn't match, so announcing an invalid one here would desync the prompt from what it actually accepts.
+
 **Step B2 - Dispatch subagents**
 
 Dispatch ALL subagents in the same response so they run in parallel.
@@ -292,7 +294,7 @@ Extraction rules:
 - INFERRED: reasonable inference (shared structure, implied dependency)
 - AMBIGUOUS: uncertain — flag it, do not omit
 - Code files: extract semantic edges AST cannot find (design patterns, protocol conformance). Do not re-extract imports.
-- Doc/paper files: named concepts, entities, citations. Store rationale (WHY decisions were made) as a `rationale` attribute on the relevant node. Use `file_type:"rationale"` for concept-like nodes (ideas, principles, mechanisms) and `file_type:"concept"` for named concepts. `file_type` MUST be one of exactly these six values: `code`, `document`, `paper`, `image`, `rationale`, `concept`. When adding `calls` edges: source is caller, target is callee.
+- Doc/paper files: named concepts, entities, citations. Store rationale (WHY decisions were made) as a `rationale` attribute on the relevant node. Use `file_type:"rationale"` for concept-like nodes (ideas, principles, mechanisms) and `file_type:"concept"` for named concepts. `file_type` must be one of the six base values — `code`, `document`, `paper`, `image`, `rationale`, `concept`PROJECT_TYPES. A value outside the allowed set is invalid and will be rejected. When adding `calls` edges: source is caller, target is callee.
 - Image files: use vision to understand what the image IS - do not just OCR.
   UI screenshot: layout patterns, design decisions, key elements, purpose.
   Chart: metric, trend/insight, data source.
@@ -320,7 +322,7 @@ Extraction rules:
 - AMBIGUOUS edges: 0.1-0.3
 
 Schema:
-{"nodes":[{"id":"filestem_entityname","label":"Human Readable Name","file_type":"code|document|paper|image|rationale|concept","source_file":"relative/path","source_location":null,"source_url":null,"captured_at":null,"author":null,"contributor":null}],"edges":[{"source":"node_id","target":"node_id","relation":"calls|implements|references|cites|conceptually_related_to|shares_data_with|semantically_similar_to|rationale_for","confidence":"EXTRACTED|INFERRED|AMBIGUOUS","confidence_score":1.0,"source_file":"relative/path","source_location":null,"weight":1.0}],"hyperedges":[{"id":"snake_case_id","label":"Human Readable Label","nodes":["node_id1","node_id2","node_id3"],"relation":"participate_in|implement|form","confidence":"EXTRACTED|INFERRED","confidence_score":0.75,"source_file":"relative/path"}],"input_tokens":0,"output_tokens":0}
+{"nodes":[{"id":"filestem_entityname","label":"Human Readable Name","file_type":"code|document|paper|image|rationale|concept|<domain type from .graphify-types, if the project declares any>","source_file":"relative/path","source_location":null,"source_url":null,"captured_at":null,"author":null,"contributor":null}],"edges":[{"source":"node_id","target":"node_id","relation":"calls|implements|references|cites|conceptually_related_to|shares_data_with|semantically_similar_to|rationale_for","confidence":"EXTRACTED|INFERRED|AMBIGUOUS","confidence_score":1.0,"source_file":"relative/path","source_location":null,"weight":1.0}],"hyperedges":[{"id":"snake_case_id","label":"Human Readable Label","nodes":["node_id1","node_id2","node_id3"],"relation":"participate_in|implement|form","confidence":"EXTRACTED|INFERRED","confidence_score":0.75,"source_file":"relative/path"}],"input_tokens":0,"output_tokens":0}
 
 Files:
 FILE_LIST
@@ -343,12 +345,15 @@ $(cat graphify-out/.graphify_python) -c "
 import json, glob
 from pathlib import Path
 from graphify.semantic_cleanup import load_validated_semantic_fragment, sanitize_semantic_fragment
+from graphify.detect import load_project_file_types
+from graphify.validate import BASE_FILE_TYPES
 
 chunks = sorted(glob.glob('graphify-out/.graphify_chunk_*.json'))
 all_nodes, all_edges, all_hyperedges = [], [], []
 total_in, total_out = 0, 0
+valid = BASE_FILE_TYPES | load_project_file_types(Path('INPUT_PATH'))
 for c in chunks:
-    d, errors = load_validated_semantic_fragment(Path(c))
+    d, errors = load_validated_semantic_fragment(Path(c), valid_types=valid)
     if errors:
         print(f'Skipping invalid chunk {c}: ' + '; '.join(errors[:3]))
         continue
@@ -468,7 +473,7 @@ from pathlib import Path
 extraction = json.loads(Path('graphify-out/.graphify_extract.json').read_text())
 detection  = json.loads(Path('graphify-out/.graphify_detect.json').read_text())
 
-G = build_from_json(extraction, directed=IS_DIRECTED)
+G = build_from_json(extraction, root='INPUT_PATH', directed=IS_DIRECTED)
 # Guard BEFORE any write: an empty extraction must not clobber a good graph.json /
 # GRAPH_REPORT.md / analysis sidecar. Check immediately after build (#1392).
 if G.number_of_nodes() == 0:
@@ -529,7 +534,7 @@ extraction = json.loads(Path('graphify-out/.graphify_extract.json').read_text())
 detection  = json.loads(Path('graphify-out/.graphify_detect.json').read_text())
 analysis   = json.loads(Path('graphify-out/.graphify_analysis.json').read_text())
 
-G = build_from_json(extraction, directed=IS_DIRECTED)
+G = build_from_json(extraction, root='INPUT_PATH', directed=IS_DIRECTED)
 communities = {int(k): v for k, v in analysis['communities'].items()}
 cohesion = {int(k): v for k, v in analysis['cohesion'].items()}
 tokens = {'input': extraction.get('input_tokens', 0), 'output': extraction.get('output_tokens', 0)}
@@ -567,7 +572,7 @@ extraction = json.loads(Path('graphify-out/.graphify_extract.json').read_text())
 analysis   = json.loads(Path('graphify-out/.graphify_analysis.json').read_text())
 labels_raw = json.loads(Path('graphify-out/.graphify_labels.json').read_text()) if Path('graphify-out/.graphify_labels.json').exists() else {}
 
-G = build_from_json(extraction, directed=IS_DIRECTED)
+G = build_from_json(extraction, root='INPUT_PATH', directed=IS_DIRECTED)
 communities = {int(k): v for k, v in analysis['communities'].items()}
 cohesion = {int(k): v for k, v in analysis['cohesion'].items()}
 labels = {int(k): v for k, v in labels_raw.items()}
@@ -598,7 +603,7 @@ extraction = json.loads(Path('graphify-out/.graphify_extract.json').read_text())
 analysis   = json.loads(Path('graphify-out/.graphify_analysis.json').read_text())
 labels_raw = json.loads(Path('graphify-out/.graphify_labels.json').read_text()) if Path('graphify-out/.graphify_labels.json').exists() else {}
 
-G = build_from_json(extraction, directed=IS_DIRECTED)
+G = build_from_json(extraction, root='INPUT_PATH', directed=IS_DIRECTED)
 communities = {int(k): v for k, v in analysis['communities'].items()}
 labels = {int(k): v for k, v in labels_raw.items()}
 
@@ -652,7 +657,7 @@ extraction = json.loads(Path('graphify-out/.graphify_extract.json').read_text())
 analysis   = json.loads(Path('graphify-out/.graphify_analysis.json').read_text())
 labels_raw = json.loads(Path('graphify-out/.graphify_labels.json').read_text()) if Path('graphify-out/.graphify_labels.json').exists() else {}
 
-G = build_from_json(extraction, directed=IS_DIRECTED)
+G = build_from_json(extraction, root='INPUT_PATH', directed=IS_DIRECTED)
 communities = {int(k): v for k, v in analysis['communities'].items()}
 cohesion = {int(k): v for k, v in analysis['cohesion'].items()}
 labels = {int(k): v for k, v in labels_raw.items()}
@@ -675,7 +680,7 @@ from graphify.build import build_from_json
 from graphify.export import to_cypher
 from pathlib import Path
 
-G = build_from_json(json.loads(Path('graphify-out/.graphify_extract.json').read_text()), directed=IS_DIRECTED)
+G = build_from_json(json.loads(Path('graphify-out/.graphify_extract.json').read_text()), root='INPUT_PATH', directed=IS_DIRECTED)
 to_cypher(G, 'graphify-out/cypher.txt')
 print('cypher.txt written - import with: cypher-shell < graphify-out/cypher.txt')
 "
@@ -692,7 +697,7 @@ from pathlib import Path
 
 extraction = json.loads(Path('graphify-out/.graphify_extract.json').read_text())
 analysis   = json.loads(Path('graphify-out/.graphify_analysis.json').read_text())
-G = build_from_json(extraction, directed=IS_DIRECTED)
+G = build_from_json(extraction, root='INPUT_PATH', directed=IS_DIRECTED)
 communities = {int(k): v for k, v in analysis['communities'].items()}
 
 result = push_to_neo4j(G, uri='NEO4J_URI', user='NEO4J_USER', password='NEO4J_PASSWORD', communities=communities)
@@ -715,7 +720,7 @@ extraction = json.loads(Path('graphify-out/.graphify_extract.json').read_text())
 analysis   = json.loads(Path('graphify-out/.graphify_analysis.json').read_text())
 labels_raw = json.loads(Path('graphify-out/.graphify_labels.json').read_text()) if Path('graphify-out/.graphify_labels.json').exists() else {}
 
-G = build_from_json(extraction, directed=IS_DIRECTED)
+G = build_from_json(extraction, root='INPUT_PATH', directed=IS_DIRECTED)
 communities = {int(k): v for k, v in analysis['communities'].items()}
 labels = {int(k): v for k, v in labels_raw.items()}
 
@@ -736,7 +741,7 @@ from pathlib import Path
 extraction = json.loads(Path('graphify-out/.graphify_extract.json').read_text())
 analysis   = json.loads(Path('graphify-out/.graphify_analysis.json').read_text())
 
-G = build_from_json(extraction, directed=IS_DIRECTED)
+G = build_from_json(extraction, root='INPUT_PATH', directed=IS_DIRECTED)
 communities = {int(k): v for k, v in analysis['communities'].items()}
 
 to_graphml(G, communities, 'graphify-out/graph.graphml')
@@ -952,7 +957,7 @@ G_existing = json_graph.node_link_graph(existing_data, edges='links')
 
 # Load new extraction
 new_extraction = json.loads(Path('graphify-out/.graphify_extract.json').read_text())
-G_new = build_from_json(new_extraction, directed=IS_DIRECTED)
+G_new = build_from_json(new_extraction, root='INPUT_PATH', directed=IS_DIRECTED)
 
 # Merge: new nodes/edges into existing graph
 G_existing.update(G_new)
@@ -975,7 +980,7 @@ from pathlib import Path
 
 old_data = json.loads(Path('graphify-out/.graphify_old.json').read_text()) if Path('graphify-out/.graphify_old.json').exists() else None
 new_extract = json.loads(Path('graphify-out/.graphify_extract.json').read_text())
-G_new = build_from_json(new_extract, directed=IS_DIRECTED)
+G_new = build_from_json(new_extract, root='INPUT_PATH', directed=IS_DIRECTED)
 
 if old_data:
     G_old = json_graph.node_link_graph(old_data, edges='links')

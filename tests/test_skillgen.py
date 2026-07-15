@@ -224,7 +224,7 @@ def test_enum_is_full_six_value_superset_in_extraction_spec():
     _, refs = _claude_artifacts()
     spec = refs["extraction-spec.md"]
     assert "`code`, `document`, `paper`, `image`, `rationale`, `concept`" in spec
-    assert '"file_type":"code|document|paper|image|rationale|concept"' in spec
+    assert '"file_type":"code|document|paper|image|rationale|concept|<domain type from .graphify-types, if the project declares any>"' in spec
 
 
 # --- codex + windows (the divergent split hosts) -------------------------------
@@ -322,7 +322,7 @@ def test_codex_and_windows_unify_enum_to_six_values():
         _, refs = _platform_artifacts(key)
         spec = refs["extraction-spec.md"]
         assert "`code`, `document`, `paper`, `image`, `rationale`, `concept`" in spec
-        assert '"file_type":"code|document|paper|image|rationale|concept"' in spec
+        assert '"file_type":"code|document|paper|image|rationale|concept|<domain type from .graphify-types, if the project declares any>"' in spec
         # No legacy 4-value enum survives anywhere in the rendered bundle.
         for body in refs.values():
             assert '"file_type":"code|document|paper|image"' not in body
@@ -526,13 +526,66 @@ def test_monoliths_carry_the_1392_runbook_fixes():
         # #18/#20 zero-node guard before any write, report/analysis gated on
         # to_json's return.
         lines = body.splitlines()
-        build_i = next(i for i, l in enumerate(lines) if "G = build_from_json(extraction, directed=IS_DIRECTED)" in l)
+        build_i = next(i for i, l in enumerate(lines) if "G = build_from_json(extraction, root='INPUT_PATH', directed=IS_DIRECTED)" in l)
         guard_i = next(i for i, l in enumerate(lines[build_i:], build_i) if "number_of_nodes() == 0" in l)
         report_i = next(i for i, l in enumerate(lines[build_i:], build_i) if "GRAPH_REPORT.md').write_text(report)" in l)
         wrote_i = next(i for i, l in enumerate(lines[build_i:], build_i) if l.strip().startswith("wrote = to_json("))
         # guard fires right after the build, before the graph/report are written.
         assert build_i < guard_i < wrote_i < report_i, f"[{key}] Step 4 ordering not fixed"
         assert "if not wrote:" in body
+
+
+def test_capa2_project_types_survive_in_generated_runbooks():
+    """Capa 2: PROJECT_TYPES resolution and the widened schema example are both
+    present in every runbook that emits the file_type enum, and the JSON schema
+    example no longer closes the enum value right after `concept`.
+
+    A 2nd-opinion review found the schema example (a separate line from the
+    enum prose sentence) still closed `file_type` right after the base six
+    values under text like "match this schema exactly" — the LLM treats the
+    schema as more authoritative than prose, so it would never emit a
+    project-declared domain type even though the prose sentence allowed it.
+    Fix 1 widens the schema example too. This test asserts both the resolution
+    machinery and that fix are present, so a regression that reverts any of
+    these lines toward the v8 baseline fails here even though the round-trip
+    guard (which only forbids *unsanctioned* drift, not a dropped fix) would
+    still pass.
+    """
+    platforms = gen.load_platforms()
+
+    # aider + devin monoliths: the enum line carries the PROJECT_TYPES clause,
+    # the resolution prose is present, and the schema example is widened.
+    for key in ("aider", "devin"):
+        body = gen.render(platforms[key])[0].content
+        assert "`concept`PROJECT_TYPES" in body, f"[{key}] enum line missing PROJECT_TYPES"
+        assert "PROJECT_TYPES resolution" in body, f"[{key}] missing resolution prose"
+        assert '"file_type":"code|document|paper|image|rationale|concept"' not in body, (
+            f"[{key}] schema example still closes file_type right after concept (Fix 1 regression)"
+        )
+        assert (
+            '"file_type":"code|document|paper|image|rationale|concept|<domain type'
+            in body
+        ), f"[{key}] schema example missing the domain-type slot"
+
+    # devin only: the per-chunk merge loads the project's effective type set
+    # before validating, so a domain-typed node is not discarded as an error.
+    devin_body = gen.render(platforms["devin"])[0].content
+    assert "valid_types=valid" in devin_body
+    assert "load_project_file_types" in devin_body
+
+    # extraction-spec.md (verbose, e.g. claude) and extraction-spec-compact.md
+    # (compact, e.g. codex) both carry PROJECT_TYPES and the widened schema.
+    for key in ("claude", "codex"):
+        _, refs = _platform_artifacts(key)
+        spec = refs["extraction-spec.md"]
+        assert "PROJECT_TYPES" in spec, f"[{key}] extraction-spec missing PROJECT_TYPES"
+        assert '"file_type":"code|document|paper|image|rationale|concept"' not in spec, (
+            f"[{key}] extraction-spec schema example still closes file_type right after concept"
+        )
+        assert (
+            '"file_type":"code|document|paper|image|rationale|concept|<domain type'
+            in spec
+        ), f"[{key}] extraction-spec schema example missing the domain-type slot"
 
 
 def test_monoliths_scope_semantic_cache_writes_to_uncached_files():

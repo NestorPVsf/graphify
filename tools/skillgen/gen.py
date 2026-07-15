@@ -781,6 +781,37 @@ def _is_directed_fix_line(line: str) -> bool:
     )
 
 
+def _is_custom_types_fix_line(line: str) -> bool:
+    """Whether a line is part of the project-configurable file_types feature (Capa 2).
+
+    The extraction prompt now admits per-project domain file_types declared in a
+    project's ``.graphify-types`` via a ``PROJECT_TYPES`` clause the agent resolves at
+    runtime, and devin's per-chunk validation loads that project's effective type set
+    so a domain-typed node is not discarded. The resolution prose and the Python that
+    computes/passes the effective ``valid_types`` (``PROJECT_TYPES``, ``.graphify-types``,
+    ``load_project_file_types``, ``BASE_FILE_TYPES``, ``valid_types=valid``) are new vs
+    pristine v8 and sanctioned here directly.
+
+    The ``load_validated_semantic_fragment(Path(c)`` anchor is different: that call
+    already exists in the v8 baseline (L342), unrelated to this feature — only its
+    arguments change here. It is narrowed to the literal ``Path(c)`` argument (not a
+    bare trailing paren) so it matches both sides of the round-trip's multiset diff —
+    the removed pristine-v8 bare call (``load_validated_semantic_fragment(Path(c))``,
+    no ``valid_types``) and the added Capa-2 call (``load_validated_semantic_fragment(
+    Path(c), valid_types=valid)``) — without masking an unrelated future change to a
+    *different* call argument (e.g. a different variable than ``c``, or an unexpected
+    second kwarg).
+    """
+    return (
+        "PROJECT_TYPES" in line
+        or ".graphify-types" in line
+        or "load_project_file_types" in line
+        or "BASE_FILE_TYPES" in line
+        or "valid_types=valid" in line
+        or "load_validated_semantic_fragment(Path(c)" in line
+    )
+
+
 def _is_content_scope_fix_line(line: str) -> bool:
     """Whether a line is part of the content-only semantic scope fix (#1392).
 
@@ -927,6 +958,7 @@ _SANCTIONED_MONOLITH_DIFFS = (
     _is_frontmatter_description_line,
     _is_chunk_cleanup_line,
     _is_directed_fix_line,
+    _is_custom_types_fix_line,
     _is_content_scope_fix_line,
     _is_cache_unlink_fix_line,
     _is_zero_node_guard_fix_line,

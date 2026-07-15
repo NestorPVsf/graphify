@@ -204,6 +204,8 @@ Only dispatch subagents for files listed in `graphify-out/.graphify_uncached.txt
 
 Load files from `graphify-out/.graphify_uncached.txt`. Split into chunks of 20-25 files each. Each image gets its own chunk (vision needs separate context). When splitting, group files from the same directory together so related artifacts land in the same chunk and cross-file relationships are more likely to be extracted.
 
+**PROJECT_TYPES resolution:** Read `.graphify-types` at INPUT_PATH (one slug per line; skip blank lines and `#` comments). If it has slugs, `PROJECT_TYPES` = ' — or one of this project's domain types: ' followed by the comma-joined slugs; otherwise `PROJECT_TYPES` is empty. This is run-level — same for every chunk, exactly like `DEEP_MODE` (see the "Before starting" note earlier in this step) — so resolve it once here and substitute it into every subagent prompt below, the same way you substitute INPUT_PATH. Only include slugs that match graphify's safe-slug pattern (lowercase, starts with a letter: `[a-z][a-z0-9_-]*`; see `graphify/detect.py:866`) — the engine silently skips any slug that doesn't match, so announcing an invalid one here would desync the prompt from what it actually accepts.
+
 @@DISPATCH@@
 
 **Step B3 - Collect, cache, and merge**
