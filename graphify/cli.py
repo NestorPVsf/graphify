@@ -1075,7 +1075,7 @@ def dispatch_command(cmd: str) -> None:
             )
         _raw = json.loads(graph_json.read_text(encoding="utf-8"))
         _directed = bool(_raw.get("directed", False))
-        G = build_from_json(_raw, directed=_directed)
+        G = build_from_json(_raw, directed=_directed, root=watch_path)
         print(f"Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
         stages.mark("load")
         print("Re-clustering...")
