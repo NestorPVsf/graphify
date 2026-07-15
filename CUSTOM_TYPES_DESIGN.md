@@ -96,20 +96,31 @@ graph actually uses it.)
 
 ---
 
-## STATUS (2026-07-15)
+## STATUS (2026-07-15) — CAPA 1 SHIPPED TO PRODUCTION
 
-**DONE** (commits 509311d, 180bcd2, f6ff33d on v8-custom-types):
-- detect.py: `load_project_file_types()` loader (safe-slug validated, warns + skips bad slugs).
+**DONE — backend (509311d, 180bcd2, f6ff33d) + critical fix (278759d), MERGED to `v8-migration` + pushed:**
+- detect.py: `load_project_file_types()` loader (safe-slug validated, warns + skips bad slugs; reads `utf-8-sig` so a Windows BOM doesn't drop the first slug).
 - validate.py: `BASE_FILE_TYPES` (7 core); `VALID_FILE_TYPES` = base alias; `valid_types` param on `validate_extraction`; isinstance guard kept.
-- build.py: `build_from_json` computes effective allowlist = BASE | project types (loaded from `root`), used in both normalization and `validate_extraction`.
-- semantic_cleanup.py: `validate_semantic_fragment` / `load_validated_semantic_fragment` take `valid_types`.
-- Root threaded into ALL Python `build_from_json` callers: watch.py `_rebuild_code` + cli.py recluster (were missing it — the bug that collapsed types); build.py + diagnostics.py already passed it.
+- build.py: effective allowlist = BASE | project types (loaded from `root`); isinstance guard so a non-string file_type degrades to "concept" instead of crashing the membership test.
+- semantic_cleanup.py: `validate_semantic_fragment` / `load_validated_semantic_fragment` take `valid_types`; same isinstance guard.
+- Root threaded into ALL Python `build_from_json` callers: watch.py `_rebuild_code` + cli.py recluster.
+- **cli.py `cluster-only`/`label` FIX — data-loss bug found by the Codex 2nd opinion, NOT by the design or prior review**: `--graph <other>/graphify-out/graph.json` derived the build root from `watch_path` (cwd), so an external project's `.graphify-types` was never found → its domain types collapsed to "concept" AND `to_json` overwrote the external graph.json (blast radius: the Gaea use-case itself). Now derives the root via `_infer_merge_root(graph_json)`, sharing the `_external_graph` condition with the `out` derivation. Regression test in test_cli_export.py (fails without the fix, passes with it).
 - Gaea `.graphify-types` created (decision/normativa/technology/component/infrastructure).
-- Tests: 93 pass (1 preexisting Windows failure, unrelated). Loader + preserve-with-config + collapse-without-config covered.
-- **VERIFIED**: rebuild over Gaea's real graph preserves 30/30 custom nodes WITH `.graphify-types`, collapses them to concept WITHOUT it. The critical production flow (post-commit hook `_rebuild_code`) is correct.
+- Tests: 2989 pass, 0 new regressions (31 preexisting failures unrelated: terraform/ollama/etc.; 1 preexisting Windows `os.geteuid` skip).
+- **VERIFIED**: rebuild over Gaea's real graph preserves 30/30 custom nodes; the external-graph recluster scenario (the data-loss bug) preserves types — no collapse, no overwrite.
 
-**PENDING** (remate — the LLM *generation* path, lower risk; preservation already works):
-- skill-*.md extraction templates: some pass `root='INPUT_PATH'` to `build_from_json`, some (aider, devin) pass only `directed=`. For the LLM to GENERATE new domain-typed nodes, the active skill's extraction code should (a) pass root, (b) load `.graphify-types` and pass `valid_types` to `load_validated_semantic_fragment`, (c) inject the project types into the emit prompt.
-- 2nd opinion (Codex read-only / cx-reviewer) before merging to v8-migration (production).
-- Merge v8-custom-types -> v8-migration + push; then production honors `.graphify-types`.
-- Update PVSF skill counters (graphify moved to always-on).
+**2nd opinion**: DONE — Codex `gpt-5.6-sol` xhigh, read-only → NO-GO on the cli.py data-loss bug (now fixed) + 5 minor findings. Scope "unblock + cheap hardening" applied.
+**Merge**: DONE — fast-forward `v8-custom-types` → `v8-migration` (278759d) + push to origin. Production honors `.graphify-types`.
+**PVSF counters**: DONE — `graphify` skill moved to always-on (43/59).
+
+**CAPA 2 — LLM *generation* path = DEFERRED to a design session (NOT mechanical).** For the LLM to EMIT custom types, the skillgen extraction prompt must change — but that prompt (`tools/skillgen/fragments/references/shared/extraction-spec.md`) states *"file_type MUST be one of exactly these six values... any other rejected"* and is a SHARED/static fragment guarded by CI (`--schema-singleton`, `--monolith-roundtrip` for aider/devin monoliths, `--check` over 134 artifacts). Reconciling per-project custom types with the enum-singleton design needs deliberate design:
+- (a) how a generic/shared prompt instructs the LLM to read `.graphify-types` at runtime without breaking the singleton;
+- (b) thread root into aider/devin `build_from_json` (low-risk, already sanctioned by `_is_directed_fix_line`) — verify the INPUT_PATH substitution machinery exists in the monoliths first;
+- (c) pass `valid_types` to `load_validated_semantic_fragment` (skill-devin.md:351 calls it without them → a domain-typed chunk is rejected and dropped);
+- (d) add sanction predicates to gen.py + re-bless `expected/` + run the 5 guards + tests/test_skillgen.py.
+
+**Follow-ups (out of scope, tracked separately):**
+- export.py: escape file_type in `export obsidian --graph` (loads JSON raw via node_link_graph, bypasses build_from_json normalization → Markdown/HTML injection into the Obsidian vault). Medium.
+- detect.py loader hardening: size cap (256 KiB) / symlink refusal / warning cap. Low. (A codex process wrote this during the fix session; reverted as out-of-scope, being done deliberately in its own task.)
+
+**Harness incidents (2026-07-15, not graphify code, under separate review):** (1) a permission-DENIED `codex exec` wrote out-of-scope changes anyway in the background; (2) API keys appear in plaintext in the bash-wrapper commandline.
